@@ -40,7 +40,7 @@ class PGOcc(MVXTwoStageDetector):
                              img_backbone, pts_backbone, img_neck, pts_neck,
                              pts_bbox_head, img_roi_head, img_rpn_head,
                              train_cfg, test_cfg, pretrained)
-        
+
         self.grid_mask = GridMask(ratio=0.5, prob=0.7)
         self.use_grid_mask = use_grid_mask
         self.use_mask_camera = use_mask_camera
@@ -133,10 +133,10 @@ class PGOcc(MVXTwoStageDetector):
         return self.forward_pts_train(img_feats, img_metas, **kwargs)
 
     def forward_test(self, img_metas, img=None, **kwargs):
-        output = self.simple_test(img_metas, img, depth=kwargs['depth'])
+        output = self.simple_test(img_metas, img, depth=kwargs['depth']) # todo img: (b v 3 256 704)
         if self.points_in_ego is not None:
             return output
-            
+
         if 'depth' in self.metric:
             render_depths_indices = [key.split('_')[-1] for key in output if key.startswith('render_depths_')]
             render_depths_indices = render_depths_indices[-1]
@@ -150,7 +150,7 @@ class PGOcc(MVXTwoStageDetector):
                     pred_depth = render_depths[i][0]
                     pred_depth = cv2.resize(np.array(pred_depth.cpu()), (gt_width, gt_height))
                     mask = np.logical_and(gt_depth > 0.1, gt_depth < 80)
-                    
+
                     pred_depth = pred_depth[mask]
                     gt_depth = gt_depth[mask]
 
@@ -159,9 +159,9 @@ class PGOcc(MVXTwoStageDetector):
                     depth_error.append(compute_errors(gt_depth, pred_depth))
                 if not self.return_depth:
                     del output[f'render_depths_{indice}']
-            
+
         batch_size = 1
-        
+
         if 'occ_preds' in output.keys():
             occ_preds = output['occ_preds']
         else:
@@ -181,7 +181,7 @@ class PGOcc(MVXTwoStageDetector):
                 'occ_preds': occ_preds[b:b+1] if occ_preds is not None else None,
                 'depth_error': depth_error if 'depth' in self.metric else None,
             } for b in range(batch_size)]
-        
+
 
     def simple_test_pts(self, x, img_metas, rescale=False, depth=None):
         outs = self.pts_bbox_head(x, img_metas, depth=depth)
@@ -203,11 +203,16 @@ class PGOcc(MVXTwoStageDetector):
     def simple_test_online(self, img_metas, img=None, rescale=False, depth=None):
         self.fp16_enabled = True
         assert len(img_metas) == 1
-        B, N, C, H, W = img.shape
-        img = img.reshape(B, N//6, 6, C, H, W)
+        B, N, C, H, W = img.shape # todo N: 相机视角数
+        img = img.reshape(B, N//6, 6, C, H, W)  # todo 实际采集了1帧/6张图像
 
-        img_filenames = img_metas[0]['filename']
-        num_frames = len(img_filenames) // 6
+
+
+        img_filenames = img_metas[0]['filename'] # todo (7+1)x6=48 这里收集了8帧/48张图像
+        num_frames = len(img_filenames) // 6 # todo 48 // 6 = 8 帧数
+
+
+
 
         img_shape = (H, W, C)
         img_metas[0]['img_shape'] = [img_shape for _ in range(len(img_filenames))]
@@ -226,7 +231,7 @@ class PGOcc(MVXTwoStageDetector):
                 except:
                     pass
 
-            if img_filenames[img_indices[0]] in self.memory:
+            if img_filenames[img_indices[0]] in self.memory: # todo img_filenames: 数据集路径名正确，路径有问题
                 img_feats_curr = self.memory[img_filenames[img_indices[0]]]
             else:
                 img_feats_curr = self.extract_feat(img[:, i], img_metas_curr)

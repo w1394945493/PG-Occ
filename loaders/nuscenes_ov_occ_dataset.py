@@ -19,13 +19,13 @@ from configs.pgocc import occ_class_names as occ3d_class_names
 class NuSceneOVOcc(NuSceneOcc):
     """
     NuScenes Open-Vocabulary Occupancy Dataset.
-    
+
     Extends NuSceneOcc with open-vocabulary features and temporal information.
     """
     def __init__(self, render_conf, return_intrinsic, metric, next_frame=1, *args, **kwargs):
         """
         Initialize NuSceneOVOcc dataset.
-        
+
         Args:
             render_conf: Rendering configuration dictionary
             return_intrinsic: Whether to return camera intrinsics
@@ -45,15 +45,15 @@ class NuSceneOVOcc(NuSceneOcc):
             'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT'
         ]
 
-    def collect_sweeps(self, index, into_past=150, into_future=1):
+    def collect_sweeps(self, index, into_past=150, into_future=1): # todo 采集时序数据：让模型能够利用视频流信息，而非单张图片
         """
         Collect temporal sweeps (past and future frames).
-        
+
         Args:
             index: Current frame index
             into_past: Maximum number of past frames to collect
             into_future: Maximum number of future frames to collect
-        
+
         Returns:
             all_sweeps_prev: List of past sweeps
             all_sweeps_next: List of future sweeps
@@ -61,48 +61,48 @@ class NuSceneOVOcc(NuSceneOcc):
         # Collect past sweeps
         all_sweeps_prev = []
         curr_index = index
-        scene_name = self.data_infos[curr_index]['scene_name']
-        
-        while len(all_sweeps_prev) < into_past:
+        scene_name = self.data_infos[curr_index]['scene_name']  # todo 以当前帧为基准，向过去和未来搜索并抓取相邻图像帧
+
+        while len(all_sweeps_prev) < into_past: # todo 抓取过去150帧的数据
             curr_sweeps = self.data_infos[curr_index]['sweeps']
-            if len(curr_sweeps) == 0:
+            if len(curr_sweeps) == 0: # todo 停止条件：采集够了150帧，或者发现更早之前按没有数据了
                 break
             all_sweeps_prev.extend(curr_sweeps)
             all_sweeps_prev.append(self.data_infos[curr_index - 1]['cams'])
             curr_index -= 1
-        
+
         # Collect future sweeps
         all_sweeps_next = []
         curr_index = index + 1
-        while len(all_sweeps_next) < into_future:
+        while len(all_sweeps_next) < into_future: # todo 抓取1帧的未来数据
             if curr_index >= len(self.data_infos):
                 break
             # Ensure we stay in the same scene
             future_scene_name = self.data_infos[curr_index]['scene_name']
-            if future_scene_name != scene_name:
+            if future_scene_name != scene_name: # todo 确保不会将A场景的结尾与B场景的开头连在一起
                 break
             curr_sweeps = self.data_infos[curr_index]['sweeps']
             all_sweeps_next.extend(curr_sweeps[::-1])
             all_sweeps_next.append(self.data_infos[curr_index]['cams'])
             curr_index += 1
-        
+
         return all_sweeps_prev, all_sweeps_next
 
     def get_data_info(self, index):
         """
         Get data info for a specific frame.
-        
+
         Args:
             index: Frame index
-        
+
         Returns:
             input_dict: Dictionary containing all frame data
         """
         info = self.data_infos[index]
-        
+
         # Collect temporal sweeps
-        sweeps_prev, sweeps_next = self.collect_sweeps(index, into_future=self.next_frame)
-        
+        sweeps_prev, sweeps_next = self.collect_sweeps(index, into_future=self.next_frame) # todo self.next_frame: 1
+
         # Extract pose information
         ego2global_translation = info['ego2global_translation']
         ego2global_rotation = info['ego2global_rotation']
@@ -114,19 +114,19 @@ class NuSceneOVOcc(NuSceneOcc):
         # Initialize input dictionary
         input_dict = dict(
             sample_idx=info['token'],
-            sweeps={'prev': sweeps_prev, 'next': sweeps_next},
+            sweeps={'prev': sweeps_prev, 'next': sweeps_next}, # todo 过去150帧的数据；未来1帧的数据
             timestamp=info['timestamp'] / 1e6,
             ego2global_translation=ego2global_translation,
             ego2global_rotation=ego2global_rotation_mat,
             lidar2ego_translation=lidar2ego_translation,
             lidar2ego_rotation=lidar2ego_rotation_mat,
         )
-        
+
         # Compute ego to lidar transformation
         ego2lidar = transform_matrix(
             lidar2ego_translation, Quaternion(lidar2ego_rotation), inverse=True)
         input_dict['ego2lidar'] = [ego2lidar for _ in range(6)]
-        
+
         # Set occupancy ground truth path
         input_dict['occ_path'] = os.path.join(
             self.occ_gt_root, info['scene_name'], info['token'], 'labels.npz')
@@ -145,8 +145,12 @@ class NuSceneOVOcc(NuSceneOcc):
 
             for _, cam_info in info['cams'].items():
                 # Basic image information
-                img_paths.append(os.path.relpath(cam_info['data_path']))
-                img_auxi_paths.append(os.path.relpath(cam_info['data_path']))
+                # img_paths.append(os.path.relpath(cam_info['data_path']))
+                # img_auxi_paths.append(os.path.relpath(cam_info['data_path']))
+                img_path = cam_info['data_path'].replace('data/nuscenes/',self.data_root) # todo 数据集
+                img_paths.append(img_path)
+                img_auxi_paths.append(img_path)
+
                 img_timestamps.append(cam_info['timestamp'] / 1e6)
 
                 # Camera to ego transformation
@@ -158,7 +162,7 @@ class NuSceneOVOcc(NuSceneOcc):
 
                 # Feature names for preprocessed data
                 feature_names.append(re.sub(
-                    r'data/nuscenes/samples/CAM_\w+', "", 
+                    r'data/nuscenes/samples/CAM_\w+', "",
                     cam_info['data_path'][:-4] + '.npy'))
 
                 # Lidar to image transformation matrix
@@ -172,7 +176,7 @@ class NuSceneOVOcc(NuSceneOcc):
                 intrinsic = cam_info['cam_intrinsic']
                 viewpad = np.eye(4)
                 viewpad[:intrinsic.shape[0], :intrinsic.shape[1]] = intrinsic
-                
+
                 ego2cam = np.linalg.inv(cam2ego)
                 ego2img = viewpad @ ego2cam
                 ego2img_rts.append(ego2img)
@@ -185,21 +189,21 @@ class NuSceneOVOcc(NuSceneOcc):
 
             # Update input dictionary with camera data
             input_dict.update(dict(
-                img_filename=img_paths,
-                feature_names=feature_names,
+                img_filename=img_paths, # todo list:6
+                feature_names=feature_names, # todo list:6
                 img_timestamp=img_timestamps,
                 lidar2img=lidar2img_rts,
                 ego2img=ego2img_rts,
                 cam2ego=cam2ego_rts,
-                cam2global=cam2global_rts, 
+                cam2global=cam2global_rts,
                 img_auxi_paths=img_auxi_paths,
             ))
-        
-            if self.return_intrinsic:
+
+            if self.return_intrinsic: # todo true
                 input_dict.update(dict(ori_k=ori_ks))
 
         # Process lidar data
-        if self.modality['use_lidar']:
+        if self.modality['use_lidar']: # todo False
             lidar_path = info['lidar_path'].replace("/code/project/SparseOcc/", "./")
             input_dict.update(dict(lidar_path=lidar_path))
 
@@ -207,20 +211,20 @@ class NuSceneOVOcc(NuSceneOcc):
         if not self.test_mode:
             past_frame_num = self.render_conf['ov_auxi_past_frame_num']
             future_frame_num = self.render_conf['ov_auxi_future_frame_num']
-            
+
             if past_frame_num > 0 or future_frame_num > 0:
                 current_scene_name = info['scene_name']
-                
+
                 # Collect past frames
                 if past_frame_num > 0:
                     for past_frame_idx in range(past_frame_num):
                         frame_idx = index - past_frame_idx - 1
                         if frame_idx < 0:
                             break
-                        
+
                         past_info = self.data_infos[frame_idx]
                         past_scene_name = past_info['scene_name']
-                        
+
                         # Ensure we stay in the same scene
                         if past_scene_name != current_scene_name:
                             break
@@ -229,12 +233,12 @@ class NuSceneOVOcc(NuSceneOcc):
                         for cam_idx, (_, cam_past_info) in enumerate(past_info['cams'].items()):
                             cam_past2global = cam_past_info['cam2global']
                             # Transform past camera to current ego coordinate
-                            cam_past2ego = (cam2ego_rts[cam_idx] @ 
-                                          np.linalg.inv(cam2global_rts[cam_idx]) @ 
+                            cam_past2ego = (cam2ego_rts[cam_idx] @
+                                          np.linalg.inv(cam2global_rts[cam_idx]) @
                                           cam_past2global)
                             cam2ego_rts.append(cam_past2ego)
                             img_auxi_paths.append(os.path.relpath(cam_past_info['data_path']))
-                        
+
                         input_dict.update(dict(
                             cam2ego=cam2ego_rts,
                             img_auxi_paths=img_auxi_paths,
@@ -242,19 +246,19 @@ class NuSceneOVOcc(NuSceneOcc):
 
         # Add scene name
         input_dict['scene_name'] = info['scene_name']
-        
+
         return input_dict
 
     def evaluate(self, occ_results, runner=None, show_dir=None, **eval_kwargs):
         """
         Evaluate occupancy prediction results.
-        
+
         Args:
             occ_results: List of prediction results
             runner: Training runner (optional)
             show_dir: Directory to save visualizations (optional)
             **eval_kwargs: Additional evaluation arguments
-        
+
         Returns:
             results: Dictionary of evaluation metrics
         """
@@ -273,7 +277,7 @@ class NuSceneOVOcc(NuSceneOcc):
             header = ("{:>8} | " * 7).format(
                 "abs_rel", "sq_rel", "rmse", "rmse_log", "a1", "a2", "a3")
             print(header)
-            
+
             mean_errors = []
             for cam in self.cam_types:
                 error_data = np.array(error[cam])
@@ -287,13 +291,13 @@ class NuSceneOVOcc(NuSceneOcc):
             average_total_errors = np.nanmean(total_errors, axis=0)
             print(f"{'average':<15}: " + ("{:>8.3f} | " * 7).format(*average_total_errors))
             results['average'] = average_total_errors
-        
+
         sample_tokens = [info['token'] for info in self.data_infos]
         # Collect predictions and ground truth for occupancy evaluation
         for batch in DataLoader(EgoPoseDataset(self.data_infos), num_workers=8):
             token = batch[0][0]
             output_origin = batch[1]
-            
+
             data_id = sample_tokens.index(token)
             info = self.data_infos[data_id]
 
@@ -306,7 +310,7 @@ class NuSceneOVOcc(NuSceneOcc):
 
             # Get prediction
             occ_pred = occ_results[data_id]
-            
+
             # Determine class names based on dataset type
             data_type = self.occ_gt_root.split('/')[-1]
             if data_type in ['gts', 'occ3d_panoptic']:
@@ -332,28 +336,28 @@ class NuSceneOVOcc(NuSceneOcc):
         if len(inst_preds) > 0:
             # Panoptic metrics
             results = main_raypq(
-                occ_preds, occ_gts, inst_preds, inst_gts, lidar_origins, 
+                occ_preds, occ_gts, inst_preds, inst_gts, lidar_origins,
                 occ_class_names=occ_class_names)
             results.update(main_rayiou(
-                occ_preds, occ_gts, lidar_origins, 
+                occ_preds, occ_gts, lidar_origins,
                 occ_class_names=occ_class_names))
         else:
             # Semantic metrics only
             if 'rayiou' in self.metric:
                 results.update(main_rayiou(
-                    occ_preds, occ_gts, lidar_origins, 
+                    occ_preds, occ_gts, lidar_origins,
                     occ_class_names=occ_class_names))
             if 'miou' in self.metric:
                 results.update(main_miou(
-                    occ_preds, occ_gts, cam_masks, 
+                    occ_preds, occ_gts, cam_masks,
                     occ_class_names=occ_class_names))
-        
+
         return results
 
     def format_results(self, occ_results, submission_prefix, **kwargs):
         """
         Format results for submission.
-        
+
         Args:
             occ_results: List of prediction results
             submission_prefix: Directory to save formatted results
@@ -367,5 +371,5 @@ class NuSceneOVOcc(NuSceneOcc):
             sample_token = info['token']
             save_path = os.path.join(submission_prefix, f'{sample_token}.npz')
             np.savez_compressed(save_path, occ_pred.astype(np.uint8))
-        
+
         print('\nFinished.')

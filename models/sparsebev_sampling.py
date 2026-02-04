@@ -29,7 +29,7 @@ def make_sample_points_from_bbox(query_bbox, offset, pc_range):
         rotation_matrices_reshaped = rotation_matrices.reshape(B * Q, 3, 3)
         rotated = torch.bmm(rotation_matrices_reshaped, delta_xyz_reshaped)
         delta_xyz = rotated.transpose(1, 2).reshape(B, Q, P, 3)
-    
+
     sample_xyz = xyz[:, :, None, :] + delta_xyz
 
     return sample_xyz
@@ -38,14 +38,14 @@ def make_sample_points_from_bbox(query_bbox, offset, pc_range):
 def make_sample_points_from_3dgs(query_bbox, offset, anisotropy_info, pc_range):
     '''
     Anisotropy-aware 3D Sampling Point formulation: μ_sample = μ + R(r) · (s ⊙ μ_δ)
-    
+
     This function implements the complete formula where:
     - μ is the center point (xyz from bbox)
     - R(r) is the rotation matrix derived from quaternion r
     - s is the scale weights for anisotropic scaling
     - μ_δ is the sampling offset
     - ⊙ denotes element-wise multiplication
-    
+
     Args:
         query_bbox: [B, Q, 10] - bbox parameters including center and dimensions
         offset: [B, Q, num_points, 3] - μ_δ: sampling offset
@@ -53,24 +53,24 @@ def make_sample_points_from_3dgs(query_bbox, offset, anisotropy_info, pc_range):
             - quaternion_params: [B, Q, num_points, 4] - r: quaternion parameters for rotation
             - scale_weights: [B, Q, num_points, 3] - s: scale weights for anisotropic scaling (3D scales)
         pc_range: point cloud range
-        
+
     Returns:
         sample_xyz: [B, Q, num_points, 3] - final sampling points
     '''
     if anisotropy_info is None:
         return make_sample_points_from_bbox(query_bbox, offset, pc_range)
-    
+
     query_bbox = decode_bbox(query_bbox, pc_range)
 
     xyz = query_bbox[..., 0:3]
     B, Q, P = offset.shape[:3]
-    
+
     xyz = xyz[:, :, None, :]
     wlh = anisotropy_info['scale'][:, :, None, :]
-    
-    delta_xyz = offset[..., 0:3] 
+
+    delta_xyz = offset[..., 0:3]
     delta_xyz = wlh * delta_xyz
-    
+
     quaternion_params = anisotropy_info['rotation']
     from .utils import get_rotation_matrix
     rotation_matrices = get_rotation_matrix(quaternion_params)
@@ -92,7 +92,7 @@ def make_sample_points_from_mask(valid_map, pc_range, occ_size, num_points, occ_
     '''
     B, Q = valid_map.shape[:2]
     occ_size = torch.tensor(occ_size).to(valid_map.device)
-    
+
     sampling_pts = []
     for b in range(B):
         indices = torch.where(valid_map[b])
@@ -109,23 +109,23 @@ def make_sample_points_from_mask(valid_map, pc_range, occ_size, num_points, occ_
             sampling_index = sampling_index + low_bound[:, None]
             sampling_index[sampling_index >= indices[0].shape[0]] = indices[0].shape[0] -1
             sampling_index = sampling_index.to(valid_map.device)
-            
+
             if occ_loc is None:
                 pts = torch.stack((indices[1][sampling_index], indices[2][sampling_index], indices[3][sampling_index]))
                 pts = pts.permute(1, 2, 0)
             else:
                 occ_idx = indices[1][sampling_index]
                 pts = occ_loc[b][occ_idx]
-        
+
             pts = pts.float()
             rand_sampling_points = torch.rand(((bin_count==0).sum(), num_points, 3)).to(pts.device) * occ_size
             pts[bin_count==0] = rand_sampling_points
         sampling_pts.append(pts)
-        
+
     sampling_pts = torch.stack(sampling_pts)
     if offset is not None:
         sampling_pts = sampling_pts + offset
-    
+
     sampling_pts = sampling_pts / occ_size
     sampling_pts[..., 0] = sampling_pts[..., 0] * (pc_range[3] - pc_range[0]) + pc_range[0]
     sampling_pts[..., 1] = sampling_pts[..., 1] * (pc_range[4] - pc_range[1]) + pc_range[1]
@@ -135,11 +135,11 @@ def make_sample_points_from_mask(valid_map, pc_range, occ_size, num_points, occ_
 
 
 def sampling_4d(sample_points, mlvl_feats, scale_weights, ego2img, image_h, image_w, eps=1e-5):
-    B, Q, T, G, P, _ = sample_points.shape
+    B, Q, T, G, P, _ = sample_points.shape # todo 1 4000 8 16 3
     N = 6
 
     sample_points = sample_points.reshape(B, Q, T, G * P, 3)
-    
+
     if DUMP.enabled:
         torch.save(sample_points,
                    '{}/sample_points_3d_stage{}.pth'.format(DUMP.out_dir, DUMP.stage_count))

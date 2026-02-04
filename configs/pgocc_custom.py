@@ -1,18 +1,29 @@
 dataset_type = 'NuSceneOVOcc'
-dataset_root = 'data/nuscenes/'
-occ_gt_root = 'data/nuscenes/gts'
-gt_depth_root = 'data/nuscenes/nuscenes_depth'
-retrieval_eval_root = 'data/nuscenes/retrieval_benchmark'
+
+# dataset_root = 'data/nuscenes/'
+dataset_root = '/home/lianghao/wangyushen/data/wangyushen/Datasets/data/v1.0-mini/'
+
+ann_root = '/home/lianghao/wangyushen/data/wangyushen/Datasets/data/nuscenes_cam/pgocc/mini/'
+
+# occ_gt_root = 'data/nuscenes/gts'
+occ_gt_root = '/home/lianghao/wangyushen/data/wangyushen/Datasets/data/v1.0-mini/gts'
+# gt_depth_root = 'data/nuscenes/nuscenes_depth'
+gt_depth_root = '/home/lianghao/wangyushen/data/wangyushen/Datasets/data/v1.0-mini/nuscenes_depth'
+# retrieval_eval_root = 'data/nuscenes/retrieval_benchmark'
 
 
 text_prompt_paths = [
-    f'./ckpt/text_proto_embeds_clip.pth',
+    # f'./ckpt/text_proto_embeds_clip.pth',
+    f'/home/lianghao/wangyushen/data/wangyushen/Weights/gausstr/text_proto_embeds_clip.pth',
 ]
 
 processed_data_conf = dict(
-    depth_root = 'data/nuscenes_metric3d',
-    text_vision_root='data/nuscenes_featup',
-    gt_depth_root='data/nuscenes/nuscenes_depth',
+    # depth_root = 'data/nuscenes_metric3d',
+    depth_root = '/home/lianghao/wangyushen/data/wangyushen/Datasets/data/nuscenes_metric3d/mini',
+    # text_vision_root='data/nuscenes_featup',
+    text_vision_root='/home/lianghao/wangyushen/data/wangyushen/Datasets/data/nuscenes_featup/mini',
+    # gt_depth_root='data/nuscenes/nuscenes_depth',
+    gt_depth_root = '/home/lianghao/wangyushen/data/wangyushen/Datasets/data/v1.0-mini/nuscenes_depth',
 )
 
 render_conf = dict(
@@ -112,7 +123,7 @@ model = dict(
             type='PGOccTransformer',
             embed_dims=_dim_,
             layers_scale=_layers_scale_,
-            num_frames=_num_frames_,
+            num_frames=_num_frames_, # todo
             num_points=_num_points_,
             num_groups=_num_groups_,
             num_queries=_num_queries_,
@@ -143,12 +154,12 @@ ida_aug_conf = {
 
 train_pipeline = [
     dict(type='LoadMultiViewImageFromFiles', to_float32=False, color_type='color'),
-    dict(type='LoadFeatureFromFiles', root_path=processed_data_conf['depth_root'], key='depth'),
-    dict(type='LoadFeatureFromFiles', root_path=processed_data_conf['text_vision_root'], key='text_vision'),
+    dict(type='LoadFeatureFromFiles', root_path=processed_data_conf['depth_root'], key='depth'), # todo 加载深度图
+    dict(type='LoadFeatureFromFiles', root_path=processed_data_conf['text_vision_root'], key='text_vision'), # todo 加载特征图
     # dict(type='LoadFeatureFromFiles', root_path=processed_data_conf['gt_depth_root'], key='gt_depth'),
     dict(type='LoadMultiViewImageFromMultiSweeps', sweeps_num=_num_frames_ - 1, render_inf=True),
     dict(type='GenerateRenderImageFromMultiSweeps', sweeps_num=_num_frames_ - 1, render_conf=render_conf),
-    dict(type='RandomTransformImage', ida_aug_conf=ida_aug_conf, training=False),
+    dict(type='RandomTransformImage', ida_aug_conf=ida_aug_conf, training=False), # todo 对图像进行数据增强处理
     dict(type='DefaultFormatBundle3D', class_names=occ_class_names),
     dict(type='Collect3D', keys=['img', 't0_2_x_geo', 'text_vision', 'depth', 'render_gt'], # 'gt_depth' is optional
          meta_keys=('filename', 'ori_shape', 'img_shape', 'pad_shape', 'ego2img', 'img_timestamp', 'cam2ego', 'ego2lidar', 'lidar2img', 'render_k', 'ori_k', 'scene_name'))
@@ -159,9 +170,16 @@ test_pipeline = [
     dict(type='LoadFeatureFromFiles', root_path=processed_data_conf['depth_root'], key='depth'),
     dict(type='LoadFeatureFromFiles', root_path=processed_data_conf['text_vision_root'], key='text_vision'),
     # dict(type='LoadFeatureFromFiles', root_path=processed_data_conf['gt_depth_root'], key='gt_depth'),
-    dict(type='LoadMultiViewImageFromMultiSweeps', sweeps_num=_num_frames_ - 1, test_mode=True),
-    dict(type='GenerateRenderImageFromMultiSweeps', sweeps_num=_num_frames_ - 1, test_mode=True, render_conf=render_conf),
-    dict(type='LoadOccGTFromFile', num_classes=len(occ_class_names)),
+    dict(type='LoadMultiViewImageFromMultiSweeps', sweeps_num=_num_frames_ - 1,
+         data_root=dataset_root, # todo wys (02.04)增加一个数据集根目录！ 标注中默认路径是data/nuscenes!!!
+         test_mode=True,
+        # test_mode=False, #!!!
+         ), # todo sweeps_num: 7：额外的图像帧
+    dict(type='GenerateRenderImageFromMultiSweeps', sweeps_num=_num_frames_ - 1,
+         test_mode=True,
+        # test_mode=False, #!!!
+         render_conf=render_conf),
+    dict(type='LoadOccGTFromFile', num_classes=len(occ_class_names)), # todo 评估时加载occ真值，训练时未用到！！！
     dict(type='RandomTransformImage', ida_aug_conf=ida_aug_conf, training=False),
     dict(type='DefaultFormatBundle3D', class_names=occ_class_names),
     dict(type='Collect3D', keys=['mask_camera', 'img', 'voxel_semantics', 'text_vision', 'depth', 'render_gt'],    # add 'gt_depth' if depth evaluation is needed
@@ -169,12 +187,14 @@ test_pipeline = [
 ]
 
 data = dict(
-    workers_per_gpu=8,
+    # workers_per_gpu=8,
+    workers_per_gpu=0,
     train=dict(
         type=dataset_type,
         data_root=dataset_root,
         occ_gt_root=occ_gt_root,
-        ann_file=dataset_root + 'nuscenes_infos_train_sweep.pkl',
+        # ann_file=dataset_root + 'nuscenes_infos_train_sweep.pkl',
+        ann_file = ann_root + 'nuscenes_infos_train_mini_sweep.pkl',
         metric=_metric_,
         pipeline=train_pipeline,
         modality=input_modality,
@@ -185,8 +205,8 @@ data = dict(
         type=dataset_type,
         data_root=dataset_root,
         occ_gt_root=occ_gt_root,
-        ann_file=dataset_root + 'nuscenes_infos_val_sweep.pkl',
-
+        # ann_file=dataset_root + 'nuscenes_infos_val_sweep.pkl',
+        ann_file = ann_root + 'nuscenes_infos_val_mini_sweep.pkl',
         metric=_metric_,
         pipeline=test_pipeline,
         modality=input_modality,
@@ -197,7 +217,8 @@ data = dict(
         type=dataset_type,
         data_root=dataset_root,
         occ_gt_root=occ_gt_root,
-        ann_file=dataset_root + 'nuscenes_infos_ov_sweep.pkl',
+        # ann_file=dataset_root + 'nuscenes_infos_ov_sweep.pkl',
+        ann_file = ann_root + 'nuscenes_infos_val_mini_sweep.pkl',
 
         metric=_metric_,
         pipeline=test_pipeline,
@@ -232,7 +253,8 @@ total_epochs = 8
 batch_size = 1
 
 # load pretrained weights
-load_from = './ckpt/cascade_mask_rcnn_r50_fpn_coco-20e_20e_nuim_20201009_124951-40963960.pth'
+# load_from = './ckpt/cascade_mask_rcnn_r50_fpn_coco-20e_20e_nuim_20201009_124951-40963960.pth'
+load_from = ''
 revise_keys = [('backbone', 'img_backbone')]
 
 # resume the last training

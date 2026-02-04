@@ -60,7 +60,7 @@ def compose_lidar2img(ego2global_translation_curr,
                       sensor2global_translation_past,
                       sensor2global_rotation_past,
                       cam_intrinsic_past):
-    
+
     R = sensor2global_rotation_past @ (inv(ego2global_rotation_curr).T @ inv(lidar2ego_rotation_curr).T)
     T = sensor2global_translation_past @ (inv(ego2global_rotation_curr).T @ inv(lidar2ego_rotation_curr).T)
     T -= ego2global_translation_curr @ (inv(ego2global_rotation_curr).T @ inv(lidar2ego_rotation_curr).T) + lidar2ego_translation_curr @ inv(lidar2ego_rotation_curr).T
@@ -82,11 +82,13 @@ def compose_lidar2img(ego2global_translation_curr,
 @PIPELINES.register_module()
 class LoadMultiViewImageFromMultiSweeps(object):
     def __init__(self,
+                 data_root='data/nuscenes',
                  sweeps_num=5,
                  color_type='color',
                  test_mode=False,
                  ov_mode=False,
-                 render_inf=False): 
+                 render_inf=False):
+        self.data_root = data_root
         self.ov_mode = ov_mode
         self.sweeps_num = sweeps_num
         self.color_type = color_type
@@ -106,7 +108,7 @@ class LoadMultiViewImageFromMultiSweeps(object):
             'CAM_FRONT', 'CAM_FRONT_RIGHT', 'CAM_FRONT_LEFT',
             'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT'
         ]
-        
+
         if self.render_inf:
             results['render_color_gt_orgin'] = [img.copy() for img in results['img'][0:6]]
 
@@ -122,7 +124,7 @@ class LoadMultiViewImageFromMultiSweeps(object):
 
                     if 'ego2lidar' in results:
                         results['ego2lidar'].append(results['ego2lidar'][0])
-                        
+
             if self.render_inf:
                 for j in range(len(cam_types)):
                     results['render_color_gt_orgin'].append(results['render_color_gt_orgin'][j])
@@ -140,7 +142,7 @@ class LoadMultiViewImageFromMultiSweeps(object):
                 min_interval = min(max_interval, self.train_interval[0])
                 interval = np.random.randint(min_interval, max_interval + 1)
                 choices = [(k + 1) * interval - 1 for k in range(self.sweeps_num)]
-            
+
             for idx in sorted(list(choices)):
                 sweep_idx = min(idx, len(results['sweeps']['prev']) - 1)
                 sweep = results['sweeps']['prev'][sweep_idx]
@@ -171,7 +173,7 @@ class LoadMultiViewImageFromMultiSweeps(object):
                     sweep = results['sweeps']['prev'][sweep_idx - 1]
 
                 for sensor in cam_types:
-                    results['render_color_gt_orgin'].append(mmcv.imread(sweep[sensor]['data_path'], self.color_type))    
+                    results['render_color_gt_orgin'].append(mmcv.imread(sweep[sensor]['data_path'], self.color_type))
                     results['cam2global'].append(sweep[sensor]['cam2global'])
 
         if self.render_inf:
@@ -183,9 +185,9 @@ class LoadMultiViewImageFromMultiSweeps(object):
                 sweep_idx = 0
                 sweep = results['sweeps']['next'][sweep_idx]
                 for sensor in cam_types:
-                    results['render_color_gt_orgin'].append(mmcv.imread(sweep[sensor]['data_path'], self.color_type))    
+                    results['render_color_gt_orgin'].append(mmcv.imread(sweep[sensor]['data_path'], self.color_type))
                     results['cam2global'].append(sweep[sensor]['cam2global'])
-                                 
+
         return results
 
     def load_online(self, results):
@@ -199,15 +201,15 @@ class LoadMultiViewImageFromMultiSweeps(object):
             'CAM_FRONT', 'CAM_FRONT_RIGHT', 'CAM_FRONT_LEFT',
             'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT'
         ]
-
-        if len(results['sweeps']['prev']) == 0:
-            for _ in range(self.sweeps_num):
+        # todo 加载额外的历史时刻的数据
+        if len(results['sweeps']['prev']) == 0: # todo 当为0时，将当前帧copy了7份
+            for _ in range(self.sweeps_num): # todo self.sweeps_num: 7 指定要额外加载多少个历史时刻的数据
                 for j in range(len(cam_types)):
                     results['img_timestamp'].append(results['img_timestamp'][j])
-                    results['filename'].append(results['filename'][j])
+                    results['filename'].append(results['filename'][j]) # todo 添加了7x6=42张图像路径
                     results['ego2img'].append(np.copy(results['ego2img'][j]))
                     results['lidar2img'].append(np.copy(results['lidar2img'][j]))
-                    
+
                     if 'cam2global' in results:
                         results['cam2global'].append(np.copy(results['cam2global'][j]))
                     if 'ego2lidar' in results:
@@ -225,8 +227,12 @@ class LoadMultiViewImageFromMultiSweeps(object):
 
                 for sensor in cam_types:
                     results['img_timestamp'].append(sweep[sensor]['timestamp'] / 1e6)
-                    results['filename'].append(os.path.relpath(sweep[sensor]['data_path']))
-                    
+
+                    # todo wys (02.04)
+                    # results['filename'].append(os.path.relpath(sweep[sensor]['data_path']))
+                    img_path = sweep[sensor]['data_path'].replace('data/nuscenes/',self.data_root)
+                    results['filename'].append(img_path)
+
                     results['lidar2img'].append(compose_lidar2img(
                         results['ego2global_translation'],
                         results['ego2global_rotation'],
@@ -240,25 +246,26 @@ class LoadMultiViewImageFromMultiSweeps(object):
                     if 'ego2lidar' in results:
                         results['ego2lidar'].append(results['ego2lidar'][0])
 
-        return results
+        return results # todo len(results['img_timestamp']): 6x(7+1)
 
     def __call__(self, results):
-        if self.sweeps_num == 0:
+        if self.sweeps_num == 0: # todo self.sweeps_num=7
             return results
-            
+
         world_size = get_dist_info()[1]
         if (world_size == 1 and self.test_mode):
             return self.load_online(results)
         else:
             return self.load_offline(results)
 
+        # self.load_offline(results)
 
 @PIPELINES.register_module()
 class LoadOccGTFromFile(object):
     def __init__(self, num_classes=18, inst_class_ids=[]):
         self.num_classes = num_classes
         self.inst_class_ids = inst_class_ids
-    
+
     def __call__(self, results):
         occ_labels = np.load(results['occ_path'])
         semantics = occ_labels['semantics']  # [200, 200, 16]
@@ -357,12 +364,12 @@ class LoadMultiViewSemanticFromFiles(object):
 
 
 @PIPELINES.register_module()
-class GenerateRenderImageFromMultiSweeps(object):
+class GenerateRenderImageFromMultiSweeps(object): # todo 渲染预处理：将图像和相机参数转换为渲染器能处理的格式
     def __init__(self,
                  sweeps_num=5,
                  render_conf=None,
                  test_mode=False):
-        
+
         self.sweeps_num = sweeps_num    # 7
         assert render_conf is not None
         self.render_conf = render_conf
@@ -379,7 +386,7 @@ class GenerateRenderImageFromMultiSweeps(object):
         render_k = results['ori_k'].copy()
         render_k[..., 0, :] *= self.render_conf.render_w / results['ori_shape'][1]
         render_k[..., 1, :] *= self.render_conf.render_h / results['ori_shape'][0]
-        
+
         render_k_4x4 = []
 
         for i in range(48):
@@ -399,8 +406,9 @@ class GenerateRenderImageFromMultiSweeps(object):
             resized_depth = np.expand_dims(resized_depth, axis=1)
             results['depth'] = resized_depth
 
-        if not self.test_mode:
-            for img_array in results['render_color_gt_orgin']:
+        # todo --------------------------------------------------#
+        if not self.test_mode: # todo self.test_mode: True
+            for img_array in results['render_color_gt_orgin']: # todo
                 img = Image.fromarray(img_array.astype('uint8'))
                 results['render_gt'].append(np.array((self.resize(img))))
 
@@ -417,9 +425,9 @@ class GenerateRenderImageFromMultiSweeps(object):
             t0_2_global = results['cam2global'][0:6]
             tn_2_global = results['cam2global'][6:]
 
-            t0_2_global_expanded = np.tile(t0_2_global, ((tn_2_global.shape[0] // t0_2_global.shape[0]), 1, 1))            
+            t0_2_global_expanded = np.tile(t0_2_global, ((tn_2_global.shape[0] // t0_2_global.shape[0]), 1, 1))
             t0_2_x_geo = np.linalg.inv(tn_2_global) @ t0_2_global_expanded
-            
+
             results.update({"t0_2_x_geo": t0_2_x_geo})
         else:
             for img_array in results['img']:
@@ -450,12 +458,12 @@ class LoadFeatureFromFiles(object):
             else:
                 path = self.root_path + feature_name
             try:
-                feature = np.load(path)
+                feature = np.load(path) # todo 'depth': (900,1600) 'text_vision': (512,27,48)
             except:
                 print(f"key: {self.key}", f"feature_path {path} not found.")
             features.append(feature.astype(np.float32))
 
-        features = np.array(features)
+        features = np.array(features) # todo (6,...)
         results.update({self.key: features})
         return results
 
@@ -472,7 +480,7 @@ class LoadSAMFromFiles(object):
             path = self.root_path + feature_name
             try:
                 feature = np.load(path)
-                cam_ids = np.concatenate([cam_ids, np.ones((feature.shape[0])) * cam_id], axis=0)                    
+                cam_ids = np.concatenate([cam_ids, np.ones((feature.shape[0])) * cam_id], axis=0)
                 feature_all = np.concatenate([feature_all, feature], axis=0)
             except:
                 pass
@@ -485,13 +493,13 @@ class LoadOVFromFiles(object):
     def __init__(self, pc_range = [], occ_size = []):
         self.occ_size = occ_size
         self.voxelization = Voxelize(pc_range[3:], pc_range[:3], occ_size)
-    
+
     def __call__(self, results):
         matching_points = []
         for matching_points_cam_path in results['matching_points_cam_filename']:
             matching_points_cam = np.load(matching_points_cam_path)
             matching_points.append(matching_points_cam)
-        
+
         matching_points = np.concatenate(matching_points)
         if 'lidar_points_ego' in results.keys():
             ov_points_ego = results['lidar_points_ego'][matching_points]
@@ -509,7 +517,7 @@ class LoadOVFromFiles(object):
 
         ov_features = DC(to_tensor(ov_features))
         ov_grid_ind = DC(to_tensor(ov_grid_ind))
-        
+
         results.update({'ov_features': ov_features,
                         'ov_grid_ind': ov_grid_ind})
         return results

@@ -39,7 +39,7 @@ class PadMultiViewImage(object):
 
     def _pad_imgs(self, results):
         padded_img = [self._pad_img(img) for img in results['img']]
-        
+
         results['ori_shape'] = [img.shape for img in results['img']]
         results['img'] = padded_img
         results['img_shape'] = [img.shape for img in padded_img]
@@ -224,10 +224,10 @@ class RandomTransformImage(object):
     def __call__(self, results):
         resize, resize_dims, crop, flip, rotate = self.sample_augmentation()
 
-        if len(results['lidar2img']) == len(results['img']):
+        if len(results['lidar2img']) == len(results['img']): # todo len(results['lidar2img'])=48 len(results['img'])=6
             for i in range(len(results['img'])):
                 img = Image.fromarray(np.uint8(results['img'][i]))
-                
+
                 # resize, resize_dims, crop, flip, rotate = self._sample_augmentation()
                 img, ida_mat = self.img_transform(
                     img,
@@ -243,7 +243,7 @@ class RandomTransformImage(object):
         elif len(results['img']) == 6:
             for i in range(len(results['img'])):
                 img = Image.fromarray(np.uint8(results['img'][i]))
-                
+
                 # resize, resize_dims, crop, flip, rotate = self._sample_augmentation()
                 img, ida_mat = self.img_transform(
                     img,
@@ -290,13 +290,13 @@ class RandomTransformImage(object):
         # post-homography transformation
         ida_rot *= resize
         ida_tran -= torch.Tensor(crop[:2])
-        
+
         if flip:
             A = torch.Tensor([[-1, 0], [0, 1]])
             b = torch.Tensor([crop[2] - crop[0], 0])
             ida_rot = A.matmul(ida_rot)
             ida_tran = A.matmul(ida_tran) + b
-        
+
         A = get_rot(rotate / 180 * np.pi)
         b = torch.Tensor([crop[2] - crop[0], crop[3] - crop[1]]) / 2
         b = A.matmul(-b) + b

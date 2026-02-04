@@ -1,4 +1,10 @@
+from setproctitle import setproctitle
+setproctitle("wys")
+
+
 import os
+# os.environ["CUDA_VISIBLE_DEVICES"] = "4"
+
 import utils
 import logging
 import argparse
@@ -41,7 +47,7 @@ def main():
 
     # parse configs
     cfgs = Config.fromfile(args.config)
-    
+
     if args.mini:
         cfgs.data.val.ann_file = cfgs.data.val.ann_file.replace('val', 'val_mini')
 
@@ -60,7 +66,7 @@ def main():
     # determine local_rank and world_size
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
-    
+
     if 'WORLD_SIZE' not in os.environ:
         os.environ['WORLD_SIZE'] = str(args.world_size)
 
@@ -112,7 +118,7 @@ def main():
         )
     else:
         quit()
-    
+
     model.eval()
     if world_size > 1:
         results = multi_gpu_test(model, val_loader, gpu_collect=True)
